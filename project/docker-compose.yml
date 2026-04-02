@@ -1,0 +1,54 @@
+services:
+  postgres:
+    # image: pgvector/pgvector:pg18-trixie
+    # image: ghcr.io/joeychilson/railway-pg-vectorscale-textsearch:latest
+    image: paradedb/paradedb:latest
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: advance-search
+    volumes:
+      - ./db-data/postgres:/var/lib/postgresql
+    restart: always
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama:/root/.ollama
+    restart: always
+
+  broker-service:
+    build:
+      context: ./../broker-service
+      dockerfile: ./../broker-service/broker-service.dockerfile
+    container_name: "broker-service"
+    restart: always
+    ports:
+      - "6000:80"
+    environment:
+      PORT: "80"
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  search-service:
+    build:
+      context: ./../search-service
+      dockerfile: ./../search-service/search-service.dockerfile
+    container_name: "search-service"
+    restart: always
+    ports:
+      - "6001:80"
+    environment:
+      PORT: "80"
+      DSN: "host=postgres user=admin password=admin dbname=advance-search port=5432 sslmode=disable"
+      OLLAMA_EMBEDDING_URL: "http://ollama:11434/api/embeddings"
+    deploy:
+      mode: replicated
+      replicas: 1

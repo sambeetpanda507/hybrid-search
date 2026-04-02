@@ -1,0 +1,8 @@
+/project/db-data
+/project/db-data/**/*
+/project/ollama
+/project/ollama/**/*
+*.env
+*.exe
+brokerApp
+searchApp
