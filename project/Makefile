@@ -18,7 +18,7 @@ up:
 
 up_build: down build_broker_service build_search_service
 	@echo Starting docker containers...
-	docker-compose up -d --build
+	docker-compose up -d --build && docker exec ollama ollama pull all-minilm
 	@echo Docker containers started
 
 down:
