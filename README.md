@@ -1,274 +1,120 @@
-# Advanced Hybrid Search
+# Hybrid Search
 
-A microservices-based advanced search system that combines **semantic search** (vector embeddings), **lexical search** (BM25 full-text), and **hybrid search** for intelligent job search functionality. Built with Go, PostgreSQL with pgvector extension, and Ollama for AI-powered embeddings.
+A Go microservices project for experimenting with job search using semantic vector search, ParadeDB BM25 lexical search, and a simple Reciprocal Rank Fusion hybrid query.
 
-## 📋 Overview
+The system is built from two HTTP services:
 
-This project demonstrates a modern search architecture using:
+- `broker-service`: API gateway exposed on `localhost:6000`
+- `search-service`: search API exposed on `localhost:6001`
 
-- **Semantic Search**: Vector similarity search using embeddings for meaning-based queries
-- **Lexical Search**: BM25 full-text search for keyword-based queries
-- **Hybrid Search**: Combines both approaches for optimal search results
-- **Job Dataset**: Pre-populated dataset with job titles, salaries, industries, and more
+Supporting services are managed with Docker Compose:
 
-## 🏗️ Architecture
+- ParadeDB/PostgreSQL on `localhost:5432`
+- Ollama on `localhost:11434`
 
+## Architecture
+
+```text
+Client
+  |
+  | HTTP :6000
+  v
+Broker Service
+  |
+  | forwards search requests
+  v
+Search Service
+  |                 |
+  | SQL             | embeddings API
+  v                 v
+ParadeDB        Ollama all-minilm
+PostgreSQL
 ```
-┌─────────────────┐
-│  Broker Service │ (Port 6000)
-│  API Gateway    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐      ┌──────────────┐      ┌─────────────┐
-│ Search Service  │◄────►│  PostgreSQL  │◄────►│   Ollama    │
-│  (Port 6001)    │      │  + ParadeDB  │      │  Embeddings │
-│                 │      │  (Port 5432) │      │ (Port 11434)│
-└─────────────────┘      └──────────────┘      └─────────────┘
+
+The search service stores job records in PostgreSQL, generates 384-dimensional embeddings with Ollama's `all-minilm` model, and queries the same `jobs` table with vector and BM25 indexes.
+
+## Repository Layout
+
+```text
+.
+|-- broker-service/
+|   |-- cmd/api/main.go
+|   |-- internal/server/
+|   |-- broker-service.dockerfile
+|   `-- go.mod
+|-- search-service/
+|   |-- cmd/api/main.go
+|   |-- internal/assets/job_salary_prediction_dataset.csv
+|   |-- internal/database/
+|   |-- internal/server/
+|   |-- search-service.dockerfile
+|   `-- go.mod
+|-- project/
+|   |-- docker-compose.yml
+|   `-- Makefile
+`-- README.md
 ```
 
-### Services
-
-1. **Broker Service** (`broker-service/`)
-   - Acts as an API gateway and request router
-   - Exposes unified endpoints for all search types
-   - Routes requests to the search service
-   - Runs on port 6000
-
-2. **Search Service** (`search-service/`)
-   - Core search functionality
-   - Handles semantic, lexical, and hybrid searches
-   - Manages job data and embeddings
-   - Integrates with PostgreSQL and Ollama
-   - Runs on port 6001
-
-3. **PostgreSQL + ParadeDB**
-   - Vector database with pgvector extension
-   - BM25 full-text search via pg_search extension
-   - HNSW index for fast vector similarity search
-   - Stores job data with 384-dimensional embeddings
-
-4. **Ollama**
-   - Provides embedding generation using `all-minilm` model
-   - Converts text queries to vector embeddings
-   - Runs locally for privacy and speed
-
-## 🚀 Getting Started
-
-### Prerequisites
+## Prerequisites
 
 - Docker and Docker Compose
-- Make (optional, for convenience commands)
-- Go 1.25.0+ (for local development)
+- Make, if you want to use the provided shortcuts
+- Go 1.25.0 or newer for local development
 
-### Quick Start
+## Quick Start
 
-1. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   cd advance-hybrid-search
-   ```
-
-2. **Navigate to project directory**
-
-   ```bash
-   cd project
-   ```
-
-3. **Start all services**
-
-   ```bash
-   make up_build
-   ```
-
-   This will:
-   - Build the broker and search services
-   - Start PostgreSQL with ParadeDB extensions
-   - Start Ollama for embeddings
-   - Create necessary database indexes
-
-4. **Load the job dataset**
-
-   ```bash
-   curl http://localhost:6001/store-csv
-   ```
-
-   This loads and processes the job salary dataset, generating embeddings for ~10,000 jobs.
-
-5. **Verify services are running**
-
-   ```bash
-   # Check broker service
-   curl http://localhost:6000/ping
-
-   # Check search service
-   curl http://localhost:6001/ping
-   ```
-
-### Available Make Commands
+Run the full stack from the `project` directory:
 
 ```bash
-make up                 # Start all services
-make up_build           # Build and start all services
-make down               # Stop all services
-make postgres-up        # Start only PostgreSQL
-make broker_start       # Run broker service locally
-make search_service_start  # Run search service locally
-make build_broker_service  # Build broker service binary
-make build_search_service  # Build search service binary
+cd project
+make up_build
 ```
 
-## 📡 API Endpoints
+`make up_build` builds both Go services, starts the Docker Compose stack, and pulls the Ollama `all-minilm` model inside the Ollama container.
 
-### Broker Service (Port 6000)
-
-**POST /broker**
-
-Unified endpoint for all search types. Send requests with different actions:
-
-#### Semantic Search
+Check the services:
 
 ```bash
-curl -X POST http://localhost:6000/broker \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": "symantic_search",
-    "symanticSearchPayload": {
-      "query": "software engineer machine learning",
-      "page": "0",
-      "limit": "10"
-    }
-  }'
+curl http://localhost:6000/ping
+curl http://localhost:6001/ping
 ```
 
-#### Lexical Search
+Load job data into PostgreSQL:
 
 ```bash
-curl -X POST http://localhost:6000/broker \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": "lexical_search",
-    "lexicalSearchPayload": {
-      "query": "data scientist",
-      "page": 0,
-      "limit": 10
-    }
-  }'
+curl http://localhost:6001/store-csv
 ```
 
-#### Hybrid Search
+The CSV file contains 250,000 data rows plus a header. The current importer loads up to about 10,000 rows and generates an embedding for each imported row, so the first import can take a few minutes.
+
+Stop the stack:
 
 ```bash
-curl -X POST http://localhost:6000/broker \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": "hybrid_search",
-    "hybridSearchPayload": {
-      "query": "senior developer python",
-      "page": 0,
-      "limit": 10
-    }
-  }'
+cd project
+make down
 ```
 
-### Search Service (Port 6001)
+## Make Commands
 
-Direct endpoints (also accessible via broker):
+Run these from `project/`.
 
-- **GET /ping** - Health check
-- **GET /read-csv** - Read and parse CSV file
-- **GET /store-csv** - Load CSV data into database with embeddings
-- **POST /get-vector** - Generate embeddings for text
-- **POST /symantic-search** - Semantic vector similarity search
-- **POST /lexical-search** - BM25 full-text search
-- **POST /hybrid-search** - Combined search approach
-
-## 🗄️ Database Schema
-
-```sql
-CREATE TABLE jobs (
-  id SERIAL PRIMARY KEY,
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP,
-  deleted_at TIMESTAMP,
-  title VARCHAR(255),
-  experience INTEGER,
-  education_level VARCHAR(255),
-  skills_count INTEGER,
-  industry VARCHAR(255),
-  company_size VARCHAR(255),
-  location VARCHAR(255),
-  remote_work VARCHAR(255),
-  certifications INTEGER,
-  salary INTEGER,
-  embedding VECTOR(384)  -- 384-dimensional vector embedding
-);
-
--- HNSW index for fast vector similarity
-CREATE INDEX idx_jobs_embedding_hnsw
-ON jobs USING hnsw (embedding vector_ip_ops);
-
--- BM25 index for full-text search
-CREATE INDEX idx_jobs_search_idx_bm25
-ON jobs USING bm25(id, title, education_level, industry, company_size, location)
-WITH (key_field='id');
+```bash
+make up                    # Start all containers
+make up_build              # Build service binaries, start containers, pull all-minilm
+make down                  # Stop containers
+make postgres-up           # Start only PostgreSQL/ParadeDB
+make postgres_up_build     # Same as postgres-up
+make search_service_start  # Run search-service locally on port 6001
+make broker_start          # Run broker-service locally on port 6000
+make build_search_service  # Build search-service Linux binary
+make build_broker_service  # Build broker-service Linux binary
 ```
 
-## 🔍 Search Types Explained
+## Configuration
 
-### 1. Semantic Search
+Docker Compose configures the services with these defaults.
 
-- Uses vector embeddings to understand query meaning
-- Finds jobs similar in _meaning_, not just keywords
-- Example: "ML engineer" will match "Machine Learning Specialist"
-- Best for: Conceptual searches, synonyms, related terms
-
-### 2. Lexical Search
-
-- BM25 algorithm for traditional keyword matching
-- Frequency and relevance-based scoring
-- Best for: Exact term matching, specific keywords
-
-### 3. Hybrid Search
-
-- Combines semantic and lexical approaches
-- Reciprocal Rank Fusion (RRF) for result merging
-- Best for: Most comprehensive and accurate results
-
-## 🛠️ Technology Stack
-
-- **Language**: Go 1.25
-- **Database**: PostgreSQL with ParadeDB (pgvector + pg_search)
-- **Embeddings**: Ollama (all-minilm model, 384 dimensions)
-- **Container**: Docker & Docker Compose
-- **Libraries**:
-  - GORM (database ORM)
-  - pgvector-go (vector operations)
-  - net/http (HTTP server)
-
-## 📊 Dataset
-
-The project uses a job salary prediction dataset with fields:
-
-- Job Title
-- Years of Experience
-- Education Level
-- Skills Count
-- Industry
-- Company Size
-- Location
-- Remote Work Option
-- Certifications
-- Salary
-
-Dataset size: ~10,000 job records
-
-## 🔧 Configuration
-
-### Environment Variables
-
-**Search Service:**
+Search service:
 
 ```bash
 PORT=80
@@ -276,69 +122,302 @@ DSN="host=postgres user=admin password=admin dbname=advance-search port=5432 ssl
 OLLAMA_EMBEDDING_URL="http://ollama:11434/api/embeddings"
 ```
 
-**Broker Service:**
+Broker service:
 
 ```bash
 PORT=80
 ```
 
-### Default Credentials
+PostgreSQL:
 
-- **PostgreSQL**:
-  - User: `admin`
-  - Password: `admin`
-  - Database: `advance-search`
+```text
+host: localhost
+port: 5432
+user: admin
+password: admin
+database: advance-search
+```
 
-## 🚦 Development
+## API
 
-### Running Services Locally
+All responses use a common JSON envelope:
 
-1. **Start PostgreSQL and Ollama**:
+```json
+{
+  "message": "Ok",
+  "data": []
+}
+```
 
-   ```bash
-   cd project
-   docker-compose up -d postgres ollama
-   ```
+### Broker Service
 
-2. **Run Search Service**:
+Base URL:
 
-   ```bash
-   cd search-service
-   DSN="host=localhost user=admin password=admin dbname=advance-search port=5432 sslmode=disable" \
-   PORT="6001" \
-   OLLAMA_EMBEDDING_URL="http://localhost:11434/api/embeddings" \
-   go run ./cmd/api/
-   ```
+```text
+http://localhost:6000
+```
 
-3. **Run Broker Service**:
-   ```bash
-   cd broker-service
-   PORT="6000" go run ./cmd/api/
-   ```
+#### `GET /ping`
 
-### Building Binaries
+Health check.
 
 ```bash
-# Build search service
+curl http://localhost:6000/ping
+```
+
+#### `POST /broker`
+
+Routes search requests to the search service. The action names and semantic payload spelling currently use `symantic` because that is the value implemented by the service.
+
+Semantic search:
+
+```bash
+curl -X POST http://localhost:6000/broker \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "symantic_search",
+    "symanticSearchPayload": {
+      "query": "machine learning engineer healthcare",
+      "page": "0",
+      "limit": "10"
+    }
+  }'
+```
+
+Lexical search:
+
+```bash
+curl -X POST http://localhost:6000/broker \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "lexical_search",
+    "lexicalSearchPayload": {
+      "query": "data analyst telecom",
+      "page": 0,
+      "limit": 10
+    }
+  }'
+```
+
+Hybrid search:
+
+```bash
+curl -X POST http://localhost:6000/broker \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "hybrid_search",
+    "hybridSearchPayload": {
+      "query": "senior python developer",
+      "page": 0,
+      "limit": 10
+    }
+  }'
+```
+
+### Search Service
+
+Base URL:
+
+```text
+http://localhost:6001
+```
+
+#### `GET /ping`
+
+Health check.
+
+```bash
+curl http://localhost:6001/ping
+```
+
+#### `GET /read-csv`
+
+Reads and parses `search-service/internal/assets/job_salary_prediction_dataset.csv`.
+
+```bash
+curl http://localhost:6001/read-csv
+```
+
+#### `GET /store-csv`
+
+Imports rows from the CSV into PostgreSQL and generates embeddings. Run this before search endpoints.
+
+```bash
+curl http://localhost:6001/store-csv
+```
+
+#### `POST /get-vector`
+
+Generates an embedding for text through Ollama.
+
+```bash
+curl -X POST http://localhost:6001/get-vector \
+  -H "Content-Type: application/json" \
+  -d '{"text":"machine learning engineer"}'
+```
+
+#### `POST /symantic-search`
+
+Semantic vector search. Pagination is passed as query parameters.
+
+```bash
+curl -X POST "http://localhost:6001/symantic-search?page=0&limit=10" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"machine learning engineer healthcare"}'
+```
+
+#### `POST /lexical-search`
+
+BM25 lexical search over title, education level, industry, company size, and location.
+
+```bash
+curl -X POST http://localhost:6001/lexical-search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "data analyst telecom",
+    "page": 0,
+    "limit": 10
+  }'
+```
+
+#### `POST /hybrid-search`
+
+Hybrid search that combines BM25 and vector rankings with Reciprocal Rank Fusion.
+
+```bash
+curl -X POST http://localhost:6001/hybrid-search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "senior python developer",
+    "page": 0,
+    "limit": 10
+  }'
+```
+
+## Search Behavior
+
+### Semantic Search
+
+Semantic search converts the query to an embedding using Ollama and compares it with stored job embeddings using pgvector distance ordering.
+
+The current job embedding text is built from:
+
+- job title
+- education level
+- industry
+- company size
+
+### Lexical Search
+
+Lexical search uses ParadeDB's BM25 support through the `pg_search` extension. It searches these fields:
+
+- title
+- education level
+- industry
+- company size
+- location
+
+### Hybrid Search
+
+Hybrid search gathers candidates from lexical and semantic searches, assigns rank-based scores with Reciprocal Rank Fusion, and returns the combined ranking.
+
+## Database
+
+The `jobs` table is created through GORM auto-migration. Manual migrations then enable extensions and create indexes.
+
+Model fields:
+
+```text
+id
+created_at
+updated_at
+deleted_at
+title
+experience
+education_level
+skills_count
+industry
+company_size
+location
+remote_work
+certifications
+salary
+embedding vector(384)
+```
+
+Manual migration:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_embedding_hnsw
+ON jobs USING hnsw (embedding vector_ip_ops);
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_search_idx_bm25
+ON jobs USING bm25(id, title, education_level, industry, company_size, location)
+WITH (key_field='id');
+```
+
+## Dataset
+
+The bundled CSV is `search-service/internal/assets/job_salary_prediction_dataset.csv`.
+
+Columns:
+
+- `job_title`
+- `experience_years`
+- `education_level`
+- `skills_count`
+- `industry`
+- `company_size`
+- `location`
+- `remote_work`
+- `certifications`
+- `salary`
+
+## Local Development
+
+Start only the infrastructure:
+
+```bash
+cd project
+docker-compose up -d postgres ollama
+docker exec ollama ollama pull all-minilm
+```
+
+Run the search service locally:
+
+```bash
+cd search-service
+DSN="host=localhost user=admin password=admin dbname=advance-search port=5432 sslmode=disable" \
+PORT="6001" \
+OLLAMA_EMBEDDING_URL="http://localhost:11434/api/embeddings" \
+go run ./cmd/api/
+```
+
+Run the broker service locally:
+
+```bash
+cd broker-service
+PORT="6000" go run ./cmd/api/
+```
+
+Build binaries manually:
+
+```bash
 cd search-service
 CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o searchApp ./cmd/api/
 
-# Build broker service
-cd broker-service
+cd ../broker-service
 CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o brokerApp ./cmd/api/
 ```
 
-## 📝 Notes
+## Notes
 
-- First-time setup requires pulling the Ollama model (executed automatically)
-- Loading the CSV dataset takes a few minutes depending on hardware
-- Vector embeddings are generated using CPU by default
-- HNSW index provides fast approximate nearest neighbor search
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
-## 📄 License
-
-This project is available for educational and development purposes.
+- The service and payload names currently spell semantic search as `symantic`; use the implemented spelling in API calls.
+- `/store-csv` is not idempotent. Calling it repeatedly inserts another batch of rows.
+- The search service runs migrations at startup.
+- The broker assumes the Docker Compose service name `search-service` when forwarding requests.
+- There are currently no test files in the repository.
